@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#1e40af">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="description" content="Sistem Salonu Saha Kontrolü — Tüm kontrol maddelerini tamamlayıp Excel çıktısı alın">
+    <meta name="description" content="Sistem Salonu Saha Kontrolü — Tüm saha kontrollerinizi kaydedip gün sonunda toplu Excel çıktısı alın">
 
     <title>Sistem Salonu Kontrol Formu</title>
 
@@ -97,9 +97,28 @@
             cursor: pointer;
             width: 100%;
         }
+
+        /* Toast animation */
+        @keyframes toastIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes toastOut {
+            from { transform: translateY(0); opacity: 1; }
+            to { transform: translateY(-20px); opacity: 0; }
+        }
+        .toast-item {
+            animation: toastIn 0.3s ease-out forwards;
+        }
+        .toast-item.hide {
+            animation: toastOut 0.3s ease-in forwards;
+        }
     </style>
 </head>
-<body class="p-4 md:p-8 max-w-3xl mx-auto pb-24">
+<body class="p-3 sm:p-4 md:p-8 max-w-4xl mx-auto pb-28">
+
+    <!-- Toast Bildirim Konteyneri -->
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4"></div>
 
     <!-- PWA Install Banner (Android / Desktop) -->
     <div class="install-banner" id="installBanner">
@@ -121,47 +140,182 @@
         <button class="close-ios" id="closeIos">Tamam, Anladım</button>
     </div>
 
-    <div class="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-gray-100">
-        <h1 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-            📋 Sistem Salonu Saha Kontrolü
-        </h1>
-        <p class="text-sm text-gray-500 mb-6">Tüm kontrol maddelerini tamamlayıp Excel çıktısı alabilirsiniz.</p>
+    <!-- Üst Başlık & Hızlı Durum Kartı -->
+    <header class="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 rounded-2xl shadow-xl p-5 md:p-6 mb-6 text-white">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-xl md:text-2xl font-black tracking-tight flex items-center gap-2">
+                    <span>📋</span> Sistem Salonu Saha Kontrolü
+                </h1>
+                <p class="text-blue-100 text-xs md:text-sm mt-1">
+                    Sahaları sırayla kontrol edip kaydedin, gün sonunda tümünü tek Excel dosyasında indirin.
+                </p>
+            </div>
+            <!-- Hafıza Sayaç & Hızlı Excel Butonu -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <span id="headerBadge" class="bg-blue-600/60 border border-blue-400/40 text-white font-semibold text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="savedCountHeader">0</span> Saha Hafızada
+                </span>
+                <button type="button" onclick="triggerExcelImport()" class="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold py-1.5 px-3 rounded-lg border border-white/20 transition flex items-center gap-1.5" title="Daha önce indirilen bir Excel dosyasını geri yükle">
+                    📂 Excel İçe Aktar
+                </button>
+            </div>
+        </div>
 
-        <form id="auditForm" class="space-y-6">
+        <!-- Gizli Excel Dosya Yükleme Inputu -->
+        <input type="file" id="excelFileInput" accept=".xlsx, .xls" class="hidden" onchange="handleExcelFileSelected(event)">
+    </header>
+
+    <!-- Düzenleme Modu Bilgilendirme Kutusu (Sadece bir kayıt düzenlenirken görünür) -->
+    <div id="editModeAlert" class="hidden bg-amber-50 border-2 border-amber-400 text-amber-900 rounded-2xl p-4 mb-6 shadow-md flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl">✏️</span>
+            <div>
+                <div class="font-bold text-sm">Düzenleme Modu Açık</div>
+                <div class="text-xs text-amber-700">Şu anda <span id="editingSiteName" class="font-bold underline"></span> sahasını düzenliyorsunuz. Değişiklikleri bitirince kaydetmeyi unutmayın.</div>
+            </div>
+        </div>
+        <button type="button" onclick="cancelEditing()" class="bg-amber-200 hover:bg-amber-300 text-amber-900 text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+            ✕ İptal Et
+        </button>
+    </div>
+
+    <!-- ANA FORM KARTI -->
+    <div class="bg-white rounded-2xl shadow-xl p-5 md:p-6 mb-6 border border-gray-100" id="formContainer">
+        <div class="flex items-center justify-between mb-4 border-b pb-3">
+            <div>
+                <h2 class="text-lg md:text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <span id="formTitleIcon">📍</span> <span id="formTitleText">Yeni Saha Kontrolü</span>
+                </h2>
+                <p class="text-xs text-gray-500">Mevcut sahanın kontrol verilerini giriniz.</p>
+            </div>
+            <button type="button" onclick="resetFormInputs(false)" class="text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 border">
+                🔄 Formu Sıfırla
+            </button>
+        </div>
+
+        <form id="auditForm" onsubmit="handleFormSubmit(event)" class="space-y-6">
             <!-- Genel Bilgiler -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Lokasyon / Santral Adı</label>
-                    <input type="text" id="locationName" placeholder="Örn: Ulukent" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" required>
+                    <label class="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Lokasyon / Santral Adı <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" id="locationName" placeholder="Örn: Ulukent Santrali" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white" required>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Kontrol Tarihi</label>
-                    <input type="date" id="auditDate" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" required>
+                    <label class="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Kontrol Tarihi <span class="text-red-500">*</span>
+                    </label>
+                    <input type="date" id="auditDate" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase mb-1">
+                        Kontrol Eden Teknisyen
+                    </label>
+                    <input type="text" id="technicianName" placeholder="Örn: Oğuzhan C." class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white">
                 </div>
             </div>
 
-            <!-- Kontrol Maddeleri -->
-            <div id="checkListContainer" class="space-y-4">
-                <!-- JS ile dinamik doldurulacak -->
+            <!-- Kontrol Maddeleri (1-15) -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Kontrol Maddeleri (15 Madde)</h3>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="setAllStatuses('Uygun')" class="text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-medium border border-emerald-200 transition">
+                            Tümü Uygun ✅
+                        </button>
+                        <button type="button" onclick="setAllStatuses('Uygulanamaz')" class="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded font-medium border transition">
+                            Tümü N/A ➖
+                        </button>
+                    </div>
+                </div>
+                <div id="checkListContainer" class="space-y-3">
+                    <!-- JS ile dinamik doldurulacak -->
+                </div>
             </div>
 
             <!-- Ekstra Genel Notlar -->
-            <div class="bg-gray-50 p-4 rounded-xl border">
-                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Ekstra Genel Notlar / Açıklama</label>
-                <textarea id="generalNotes" rows="3" placeholder="Sistem salonu genel durumu ile ilgili ilave notlar..." class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></textarea>
+            <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Saha Genel Notları / Ekstra Açıklamalar</label>
+                <textarea id="generalNotes" rows="2" placeholder="Sistem salonu genel durumu ile ilgili ilave notlar..." class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"></textarea>
             </div>
 
-            <!-- Butonlar -->
-            <div class="flex gap-3">
-                <button type="button" onclick="exportToExcel()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition duration-200 flex items-center justify-center gap-2">
-                    📊 Excel Olarak İndir
+            <!-- Form Kaydetme Butonları -->
+            <div class="flex flex-col sm:flex-row gap-3 pt-2">
+                <button type="submit" id="saveSiteBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3.5 px-6 rounded-xl shadow-lg transition duration-200 flex items-center justify-center gap-2">
+                    <span class="text-lg">💾</span>
+                    <span id="saveBtnText">Bu Sahayı Kaydet (Listeye Ekle)</span>
                 </button>
-                <button type="reset" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-3 px-4 rounded-xl transition duration-200">
-                    Temizle
+                <button type="button" onclick="resetFormInputs(true)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3.5 px-5 rounded-xl border transition duration-200 flex items-center justify-center gap-1.5">
+                    <span>🔄</span> Temizle
                 </button>
             </div>
         </form>
     </div>
+
+    <!-- KAYITLI SAHALAR & GÜN SONU EXCEL RAPOR KARTI -->
+    <div class="bg-white rounded-2xl shadow-xl p-5 md:p-6 border border-gray-100">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b">
+            <div>
+                <h2 class="text-lg md:text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <span>🗂️</span> Hafızadaki Kayıtlı Sahalar
+                    <span id="savedCountBadge" class="bg-blue-100 text-blue-800 text-xs font-black px-2.5 py-0.5 rounded-full ml-1">0</span>
+                </h2>
+                <p class="text-xs text-gray-500 mt-0.5">Kaydettiğiniz tüm sahalar burada toplanır. Gün sonunda tek tıkla toplu Excel alabilirsiniz.</p>
+            </div>
+
+            <!-- Toplu Excel İndirme Butonu -->
+            <button type="button" onclick="exportAllToExcel()" id="exportExcelBtn" class="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 text-sm">
+                <span>📊</span>
+                <span id="exportBtnText">Gün Sonu Excel İndir (0 Saha)</span>
+            </button>
+        </div>
+
+        <!-- Filtreleme & Aksiyon Çubuğu -->
+        <div id="listControls" class="flex flex-wrap items-center justify-between gap-2 pt-3 pb-2 text-xs">
+            <div class="flex items-center gap-1">
+                <button type="button" onclick="filterSites('all')" id="filterAllBtn" class="px-3 py-1.5 rounded-lg font-bold bg-blue-600 text-white transition">
+                    Tümü (<span id="countAll">0</span>)
+                </button>
+                <button type="button" onclick="filterSites('today')" id="filterTodayBtn" class="px-3 py-1.5 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition">
+                    Bugün (<span id="countToday">0</span>)
+                </button>
+                <button type="button" onclick="filterSites('older')" id="filterOlderBtn" class="px-3 py-1.5 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition">
+                    Önceki Günler (<span id="countOlder">0</span>)
+                </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="triggerExcelImport()" class="text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded transition flex items-center gap-1">
+                    📂 Excel Yükle / Birleştir
+                </button>
+                <button type="button" onclick="confirmClearAllSites()" id="clearAllBtn" class="text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded transition flex items-center gap-1">
+                    🗑️ Tümünü Temizle
+                </button>
+            </div>
+        </div>
+
+        <!-- Kayıt Listesi Konteyneri -->
+        <div id="savedSitesList" class="space-y-3 mt-3">
+            <!-- Dinamik Olarak Kartlar Gelecek -->
+        </div>
+
+        <!-- Boş Durum Bilgisi (Kayıt yokken gösterilir) -->
+        <div id="emptySitesState" class="py-12 text-center text-gray-400">
+            <div class="text-4xl mb-3">📍</div>
+            <div class="text-sm font-semibold text-gray-600">Henüz kaydedilmiş saha bulunmuyor</div>
+            <p class="text-xs text-gray-400 max-w-md mx-auto mt-1">
+                İlk sahanızı kontrol ettikten sonra yukarıdaki <strong>"Bu Sahayı Kaydet"</strong> butonuna basınız. Tüm sahalarınız burada birikecek ve gün sonunda hepsini içeren tek bir Excel dosyası indirebileceksiniz.
+            </p>
+        </div>
+    </div>
+
+    <!-- Alt Bilgi / PWA İpuçları -->
+    <footer class="mt-8 text-center text-xs text-gray-400">
+        <p>Sistem Salonu Saha Kontrol Formu • Çevrimdışı Çalışabilir (PWA) • Veriler tarayıcınızda güvenle saklanır.</p>
+    </footer>
 
     <script>
         // ─── PWA Service Worker Kaydı ────────────────────────────
@@ -180,26 +334,24 @@
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            installBanner.classList.add('show');
+            installBanner?.classList.add('show');
         });
 
-        installBtn.addEventListener('click', async () => {
+        installBtn?.addEventListener('click', async () => {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
-                const result = await deferredPrompt.userChoice;
-                console.log('Install result:', result.outcome);
+                await deferredPrompt.userChoice;
                 deferredPrompt = null;
             }
-            installBanner.classList.remove('show');
+            installBanner?.classList.remove('show');
         });
 
-        installDismiss.addEventListener('click', () => {
-            installBanner.classList.remove('show');
+        installDismiss?.addEventListener('click', () => {
+            installBanner?.classList.remove('show');
         });
 
-        // Hide banner if already installed as PWA
         window.addEventListener('appinstalled', () => {
-            installBanner.classList.remove('show');
+            installBanner?.classList.remove('show');
             deferredPrompt = null;
         });
 
@@ -216,17 +368,17 @@
 
         if (isIos() && !isInStandaloneMode()) {
             const dismissed = localStorage.getItem('iosPromptDismissed');
-            if (!dismissed) {
+            if (!dismissed && iosPrompt) {
                 setTimeout(() => iosPrompt.classList.add('show'), 2000);
             }
         }
 
-        closeIos.addEventListener('click', () => {
-            iosPrompt.classList.remove('show');
+        closeIos?.addEventListener('click', () => {
+            iosPrompt?.classList.remove('show');
             localStorage.setItem('iosPromptDismissed', 'true');
         });
 
-        // ─── Görseldeki 15 Madde ─────────────────────────────────
+        // ─── 15 KONTROL MADDESİ TANIMI ───────────────────────────
         const checkItems = [
             { id: 1, label: "1- Kaç Yön Var", hasDirections: true },
             { id: 2, label: "2- Kaç Shelf Var" },
@@ -245,111 +397,854 @@
             { id: 15, label: "15- Kanalet Kontrolü" }
         ];
 
-        // Bugünün tarihini varsayılan atama
-        document.getElementById('auditDate').valueAsDate = new Date();
+        // ─── UYGULAMA DURUMU (STATE) ─────────────────────────────
+        const STORAGE_KEY = 'sistem_salonu_kayitlar_v2';
+        let savedSites = [];
+        let currentEditingId = null; // null ise yeni kayıt, id varsa düzenleme
+        let currentFilter = 'all';   // 'all', 'today', 'older'
 
-        // Form Arayüzünü Oluşturma
-        const container = document.getElementById('checkListContainer');
-        
-        checkItems.forEach(item => {
-            const card = document.createElement('div');
-            card.className = "p-4 bg-white border border-gray-200 rounded-xl shadow-sm space-y-3";
-            
-            let html = `
-                <div class="flex items-center justify-between">
-                    <span class="font-medium text-gray-800 text-sm">${item.label}</span>
-                    <select id="status_${item.id}" class="p-2 border rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500">
-                        <option value="Uygun">✅ Uygun / Var</option>
-                        <option value="Uygun Değil">❌ Uygun Değil / Yok</option>
-                        <option value="Uygulanamaz">➖ N/A</option>
-                    </select>
-                </div>
-            `;
+        // Sayfa yüklendiğinde başlat
+        document.addEventListener('DOMContentLoaded', () => {
+            initDate();
+            buildChecklistUI();
+            loadSavedSitesFromStorage();
+        });
 
-            // Eğer Baş Yön seçeneğiyse Yön Sayısı ve Detayı ekle
-            if(item.hasDirections) {
-                html += `
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
-                        <div>
-                            <label class="text-xs text-gray-500">Yön Sayısı</label>
-                            <input type="number" id="directionCount_${item.id}" placeholder="Örn: 4" class="w-full p-2 border rounded-lg text-sm">
+        function initDate() {
+            const dateInput = document.getElementById('auditDate');
+            if (dateInput && !dateInput.value) {
+                dateInput.valueAsDate = new Date();
+            }
+        }
+
+        // Form Checklist Arayüzünü Oluşturma
+        function buildChecklistUI() {
+            const container = document.getElementById('checkListContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            checkItems.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "p-3.5 bg-white border border-gray-200 rounded-xl shadow-sm space-y-2.5 transition hover:border-blue-300";
+
+                let html = `
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <span class="font-semibold text-gray-800 text-sm">${item.label}</span>
+                        <select id="status_${item.id}" class="p-2 border rounded-lg text-xs md:text-sm font-medium bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="Uygun">✅ Uygun / Var</option>
+                            <option value="Uygun Değil">❌ Uygun Değil / Yok</option>
+                            <option value="Uygulanamaz">➖ N/A</option>
+                        </select>
+                    </div>
+                `;
+
+                // Eğer 1. madde (Yön) ise Yön Sayısı ve Detay alanları
+                if (item.hasDirections) {
+                    html += `
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+                            <div>
+                                <label class="text-[11px] font-semibold text-gray-500 uppercase">Yön Sayısı</label>
+                                <input type="number" id="directionCount_${item.id}" placeholder="Örn: 4" class="w-full p-2 border rounded-lg text-xs bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="text-[11px] font-semibold text-gray-500 uppercase">Yön Detayları (Merzifon, D.Saray vb.)</label>
+                                <input type="text" id="directionDetails_${item.id}" placeholder="Örn: Merzifon, D.Saray, Osmancık, Merkez" class="w-full p-2 border rounded-lg text-xs bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
                         </div>
-                        <div class="sm:col-span-2">
-                            <label class="text-xs text-gray-500">Yön Detayları (Merzifon, D.Saray vb.)</label>
-                            <input type="text" id="directionDetails_${item.id}" placeholder="Örn: Merzifon, D.Saray, Osmancık, Merkez" class="w-full p-2 border rounded-lg text-sm">
+                    `;
+                }
+
+                // Not Ekleme Alanı
+                html += `
+                    <div>
+                        <input type="text" id="note_${item.id}" placeholder="Maddeye özel açıklama / not..." class="w-full p-2 bg-gray-50 border rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                `;
+
+                card.innerHTML = html;
+                container.appendChild(card);
+            });
+        }
+
+        // Hızlı toplu durum atama (Tümü Uygun / Tümü N/A)
+        function setAllStatuses(statusValue) {
+            checkItems.forEach(item => {
+                const el = document.getElementById(`status_${item.id}`);
+                if (el) el.value = statusValue;
+            });
+            showToast(`Tüm maddeler "${statusValue}" olarak ayarlandı.`, 'info');
+        }
+
+        // ─── LOCAL STORAGE İŞLEMLERİ ─────────────────────────────
+        function loadSavedSitesFromStorage() {
+            try {
+                // Önce v2 key'ine bak
+                const data = localStorage.getItem(STORAGE_KEY);
+                if (data) {
+                    savedSites = JSON.parse(data) || [];
+                } else {
+                    // Eski v1 verisi varsa aktar
+                    const oldData = localStorage.getItem('sistem_salonu_kayitlar');
+                    if (oldData) {
+                        savedSites = JSON.parse(oldData) || [];
+                        saveToStorage();
+                    }
+                }
+            } catch (err) {
+                console.error('Veriler yüklenirken hata oluştu:', err);
+                savedSites = [];
+            }
+            renderSavedSites();
+        }
+
+        function saveToStorage() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(savedSites));
+            } catch (err) {
+                console.error('LocalStorage kaydetme hatası:', err);
+                showToast('Hafıza kaydetme hatası: Tarayıcı kotası dolmuş olabilir.', 'error');
+            }
+        }
+
+        // ─── FORM İŞLEMLERİ & SAHA KAYDETME ───────────────────────
+        function handleFormSubmit(e) {
+            e.preventDefault();
+
+            const locationName = document.getElementById('locationName').value.trim();
+            const auditDate = document.getElementById('auditDate').value;
+            const technician = document.getElementById('technicianName').value.trim();
+            const generalNotes = document.getElementById('generalNotes').value.trim();
+
+            if (!locationName) {
+                showToast('Lütfen lokasyon / santral adını giriniz!', 'warning');
+                document.getElementById('locationName').focus();
+                return;
+            }
+
+            // Maddeleri topla
+            const items = checkItems.map(item => {
+                const status = document.getElementById(`status_${item.id}`)?.value || 'Uygun';
+                const note = document.getElementById(`note_${item.id}`)?.value.trim() || '';
+                let directionCount = '';
+                let directionDetails = '';
+
+                if (item.hasDirections) {
+                    directionCount = document.getElementById(`directionCount_${item.id}`)?.value.trim() || '';
+                    directionDetails = document.getElementById(`directionDetails_${item.id}`)?.value.trim() || '';
+                }
+
+                return {
+                    id: item.id,
+                    label: item.label,
+                    status,
+                    directionCount,
+                    directionDetails,
+                    note
+                };
+            });
+
+            if (currentEditingId) {
+                // Güncelleme Modu
+                const siteIndex = savedSites.findIndex(s => s.id === currentEditingId);
+                if (siteIndex !== -1) {
+                    savedSites[siteIndex] = {
+                        ...savedSites[siteIndex],
+                        locationName,
+                        auditDate,
+                        technician,
+                        generalNotes,
+                        updatedAt: Date.now(),
+                        items
+                    };
+                    saveToStorage();
+                    renderSavedSites();
+                    showToast(`✅ "${locationName}" başarıyla güncellendi!`, 'success');
+                    cancelEditing();
+                }
+            } else {
+                // Yeni Saha Ekleme Modu
+                const newSite = {
+                    id: 'site_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                    locationName,
+                    auditDate,
+                    technician,
+                    generalNotes,
+                    createdAt: Date.now(),
+                    items
+                };
+
+                savedSites.push(newSite);
+                saveToStorage();
+                renderSavedSites();
+
+                showToast(`✅ "${locationName}" hafızaya kaydedildi! (Toplam ${savedSites.length} saha)`, 'success');
+
+                // Yeni saha için formu temizle ve bugünün tarihini koru
+                resetFormInputs(false);
+
+                // Kullanıcı rahat etsin diye sayfa başına yumuşak kaydır
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
+
+        // Form alanlarını sıfırlama
+        function resetFormInputs(clearLocationOnly = false) {
+            document.getElementById('locationName').value = '';
+            document.getElementById('generalNotes').value = '';
+            // Tarihi bugüne çek
+            initDate();
+
+            checkItems.forEach(item => {
+                const statusEl = document.getElementById(`status_${item.id}`);
+                const noteEl = document.getElementById(`note_${item.id}`);
+                if (statusEl) statusEl.value = 'Uygun';
+                if (noteEl) noteEl.value = '';
+
+                if (item.hasDirections) {
+                    const countEl = document.getElementById(`directionCount_${item.id}`);
+                    const detEl = document.getElementById(`directionDetails_${item.id}`);
+                    if (countEl) countEl.value = '';
+                    if (detEl) detEl.value = '';
+                }
+            });
+
+            if (currentEditingId) {
+                cancelEditing();
+            }
+        }
+
+        // Bir sahayı düzenlemek için forma yükleme
+        function editSite(siteId) {
+            const site = savedSites.find(s => s.id === siteId);
+            if (!site) return;
+
+            currentEditingId = siteId;
+
+            // Form alanlarını doldur
+            document.getElementById('locationName').value = site.locationName || '';
+            document.getElementById('auditDate').value = site.auditDate || '';
+            document.getElementById('technicianName').value = site.technician || '';
+            document.getElementById('generalNotes').value = site.generalNotes || '';
+
+            // Maddeleri doldur
+            (site.items || []).forEach(item => {
+                const statusEl = document.getElementById(`status_${item.id}`);
+                const noteEl = document.getElementById(`note_${item.id}`);
+                if (statusEl && item.status) statusEl.value = item.status;
+                if (noteEl) noteEl.value = item.note || '';
+
+                if (item.hasDirections) {
+                    const countEl = document.getElementById(`directionCount_${item.id}`);
+                    const detEl = document.getElementById(`directionDetails_${item.id}`);
+                    if (countEl) countEl.value = item.directionCount || '';
+                    if (detEl) detEl.value = item.directionDetails || '';
+                }
+            });
+
+            // UI Düzenleme Modu Göstergesi
+            const alertBox = document.getElementById('editModeAlert');
+            const siteNameSpan = document.getElementById('editingSiteName');
+            const titleText = document.getElementById('formTitleText');
+            const saveBtnText = document.getElementById('saveBtnText');
+            const saveSiteBtn = document.getElementById('saveSiteBtn');
+
+            if (alertBox) alertBox.classList.remove('hidden');
+            if (siteNameSpan) siteNameSpan.textContent = site.locationName;
+            if (titleText) titleText.textContent = `Sahayı Düzenle: ${site.locationName}`;
+            if (saveBtnText) saveBtnText.textContent = 'Güncellemeyi Kaydet';
+            if (saveSiteBtn) {
+                saveSiteBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                saveSiteBtn.classList.add('bg-amber-600', 'hover:bg-amber-700');
+            }
+
+            // Forma odaklan ve kaydır
+            document.getElementById('formContainer').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('locationName').focus();
+            showToast(`✏️ "${site.locationName}" düzenlenmek üzere forma yüklendi.`, 'info');
+        }
+
+        // Düzenlemeyi İptal Etme
+        function cancelEditing() {
+            currentEditingId = null;
+
+            const alertBox = document.getElementById('editModeAlert');
+            const titleText = document.getElementById('formTitleText');
+            const saveBtnText = document.getElementById('saveBtnText');
+            const saveSiteBtn = document.getElementById('saveSiteBtn');
+
+            if (alertBox) alertBox.classList.add('hidden');
+            if (titleText) titleText.textContent = 'Yeni Saha Kontrolü';
+            if (saveBtnText) saveBtnText.textContent = 'Bu Sahayı Kaydet (Listeye Ekle)';
+            if (saveSiteBtn) {
+                saveSiteBtn.classList.remove('bg-amber-600', 'hover:bg-amber-700');
+                saveSiteBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            }
+        }
+
+        // Tek bir sahayı silme
+        function deleteSite(siteId) {
+            const site = savedSites.find(s => s.id === siteId);
+            if (!site) return;
+
+            if (confirm(`"${site.locationName}" sahasını kayıtlar arasından silmek istediğinize emin misiniz?`)) {
+                savedSites = savedSites.filter(s => s.id !== siteId);
+                saveToStorage();
+
+                if (currentEditingId === siteId) {
+                    cancelEditing();
+                    resetFormInputs(false);
+                }
+
+                renderSavedSites();
+                showToast(`🗑️ "${site.locationName}" silindi.`, 'info');
+            }
+        }
+
+        // Tüm kayıtları temizleme (Yeni gün başlatma)
+        function confirmClearAllSites() {
+            if (savedSites.length === 0) {
+                showToast('Hafızada silinecek kayıt yok.', 'info');
+                return;
+            }
+
+            const confirmMsg = `Hafızadaki TÜM (${savedSites.length}) saha kontrol kaydını silmek ve yeni gün başlatmak istediğinize emin misiniz?\n\n(Önemli: Henüz Excel indirmediyseniz önce "Excel İndir" butonuna basarak yedeğinizi almanız önerilir.)`;
+            if (confirm(confirmMsg)) {
+                savedSites = [];
+                saveToStorage();
+                cancelEditing();
+                resetFormInputs(false);
+                renderSavedSites();
+                showToast('Tüm kayıtlar sıfırlandı. Yeni gün için hazırsınız.', 'success');
+            }
+        }
+
+        // ─── FİLTRELEME & LİSTE GÖRÜNTÜLEME ──────────────────────
+        function filterSites(type) {
+            currentFilter = type;
+
+            const btnAll = document.getElementById('filterAllBtn');
+            const btnToday = document.getElementById('filterTodayBtn');
+            const btnOlder = document.getElementById('filterOlderBtn');
+
+            [btnAll, btnToday, btnOlder].forEach(btn => {
+                if (btn) {
+                    btn.className = 'px-3 py-1.5 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition';
+                }
+            });
+
+            if (type === 'all' && btnAll) {
+                btnAll.className = 'px-3 py-1.5 rounded-lg font-bold bg-blue-600 text-white transition';
+            } else if (type === 'today' && btnToday) {
+                btnToday.className = 'px-3 py-1.5 rounded-lg font-bold bg-blue-600 text-white transition';
+            } else if (type === 'older' && btnOlder) {
+                btnOlder.className = 'px-3 py-1.5 rounded-lg font-bold bg-blue-600 text-white transition';
+            }
+
+            renderSavedSites();
+        }
+
+        function renderSavedSites() {
+            const listEl = document.getElementById('savedSitesList');
+            const emptyEl = document.getElementById('emptySitesState');
+            const headerBadgeCount = document.getElementById('savedCountHeader');
+            const savedCountBadge = document.getElementById('savedCountBadge');
+            const exportExcelBtn = document.getElementById('exportExcelBtn');
+            const exportBtnText = document.getElementById('exportBtnText');
+
+            const countAllEl = document.getElementById('countAll');
+            const countTodayEl = document.getElementById('countToday');
+            const countOlderEl = document.getElementById('countOlder');
+
+            const total = savedSites.length;
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            const todaySites = savedSites.filter(s => s.auditDate === todayStr);
+            const olderSites = savedSites.filter(s => s.auditDate !== todayStr);
+
+            if (headerBadgeCount) headerBadgeCount.textContent = total;
+            if (savedCountBadge) savedCountBadge.textContent = `${total} Saha`;
+            if (countAllEl) countAllEl.textContent = total;
+            if (countTodayEl) countTodayEl.textContent = todaySites.length;
+            if (countOlderEl) countOlderEl.textContent = olderSites.length;
+
+            if (exportBtnText) {
+                exportBtnText.textContent = total > 0 ? `Gün Sonu Excel İndir (${total} Saha)` : 'Gün Sonu Excel İndir';
+            }
+            if (exportExcelBtn) {
+                exportExcelBtn.disabled = total === 0;
+            }
+
+            if (total === 0) {
+                if (emptyEl) emptyEl.style.display = 'block';
+                if (listEl) listEl.innerHTML = '';
+                return;
+            }
+
+            if (emptyEl) emptyEl.style.display = 'none';
+
+            // Filtre uygula
+            let displaySites = savedSites;
+            if (currentFilter === 'today') {
+                displaySites = todaySites;
+            } else if (currentFilter === 'older') {
+                displaySites = olderSites;
+            }
+
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            if (displaySites.length === 0) {
+                listEl.innerHTML = `
+                    <div class="py-8 text-center text-xs text-gray-400">
+                        Bu filtreye uygun saha kaydı bulunamadı.
+                    </div>
+                `;
+                return;
+            }
+
+            // Yeniden eskiye sıralı göster
+            const sortedSites = [...displaySites].reverse();
+
+            sortedSites.forEach((site, index) => {
+                // İstatistik hesapla
+                let uygunCount = 0;
+                let uygunDegilCount = 0;
+                let naCount = 0;
+
+                (site.items || []).forEach(it => {
+                    if (it.status === 'Uygun') uygunCount++;
+                    else if (it.status === 'Uygun Değil') uygunDegilCount++;
+                    else naCount++;
+                });
+
+                const card = document.createElement('div');
+                card.className = "p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl transition duration-150 shadow-sm";
+
+                const isToday = site.auditDate === todayStr;
+
+                card.innerHTML = `
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-bold text-gray-800 text-base">${site.locationName}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium ${isToday ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'}">
+                                    📅 ${site.auditDate || 'Tarih Belirtilmedi'}
+                                </span>
+                                ${site.technician ? `<span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">👤 ${site.technician}</span>` : ''}
+                            </div>
+                            <!-- Durum Rozetleri -->
+                            <div class="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                                <span class="bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200">
+                                    ✅ ${uygunCount} Uygun
+                                </span>
+                                ${uygunDegilCount > 0 ? `
+                                    <span class="bg-rose-50 text-rose-700 font-semibold px-2 py-0.5 rounded border border-rose-200">
+                                        ❌ ${uygunDegilCount} Uygun Değil
+                                    </span>
+                                ` : ''}
+                                ${naCount > 0 ? `
+                                    <span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded border">
+                                        ➖ ${naCount} N/A
+                                    </span>
+                                ` : ''}
+                                ${site.generalNotes ? `
+                                    <span class="text-gray-500 italic max-w-xs truncate" title="${site.generalNotes}">
+                                        💬 ${site.generalNotes}
+                                    </span>
+                                ` : ''}
+                            </div>
+                        </div>
+
+                        <!-- Aksiyon Butonları -->
+                        <div class="flex items-center gap-1.5 self-end sm:self-center">
+                            <button type="button" onclick="toggleDetails('${site.id}')" class="text-xs bg-white hover:bg-gray-100 text-gray-700 font-medium px-2.5 py-1.5 rounded-lg border transition flex items-center gap-1">
+                                <span>👁️</span> Detay
+                            </button>
+                            <button type="button" onclick="editSite('${site.id}')" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 transition flex items-center gap-1">
+                                <span>✏️</span> Düzenle
+                            </button>
+                            <button type="button" onclick="deleteSite('${site.id}')" class="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-medium px-2.5 py-1.5 rounded-lg border border-red-200 transition flex items-center gap-1">
+                                <span>🗑️</span> Sil
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Genişletilebilir Detay Bölümü -->
+                    <div id="details_${site.id}" class="hidden mt-3 pt-3 border-t border-gray-200">
+                        <div class="text-xs font-bold text-gray-600 uppercase mb-2">15 Kontrol Maddesi Detayı:</div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                            ${(site.items || []).map(it => `
+                                <div class="p-2 bg-white rounded border flex items-start justify-between gap-2">
+                                    <div>
+                                        <div class="font-medium text-gray-800">${it.label}</div>
+                                        ${it.hasDirections && (it.directionCount || it.directionDetails) ? `
+                                            <div class="text-[11px] text-blue-600 mt-0.5">
+                                                Yön: ${it.directionCount || '-'} adet ${it.directionDetails ? `(${it.directionDetails})` : ''}
+                                            </div>
+                                        ` : ''}
+                                        ${it.note ? `<div class="text-[11px] text-gray-500 italic mt-0.5">Not: ${it.note}</div>` : ''}
+                                    </div>
+                                    <span class="text-[11px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                                        it.status === 'Uygun' ? 'bg-emerald-100 text-emerald-800' :
+                                        it.status === 'Uygun Değil' ? 'bg-rose-100 text-rose-800' : 'bg-gray-100 text-gray-700'
+                                    }">
+                                        ${it.status}
+                                    </span>
+                                </div>
+                            `).join('')}
                         </div>
                     </div>
                 `;
+
+                listEl.appendChild(card);
+            });
+        }
+
+        function toggleDetails(siteId) {
+            const detailEl = document.getElementById(`details_${siteId}`);
+            if (detailEl) {
+                detailEl.classList.toggle('hidden');
+            }
+        }
+
+        // ─── EXCEL ÇIKTISI ÜRETME (TOPLU GÜN SONU RAPORU) ────────
+        function exportAllToExcel() {
+            // Eğer formda henüz kaydedilmemiş bir saha adı yazıyorsa uyar
+            const currentLocation = document.getElementById('locationName').value.trim();
+            if (currentLocation && !currentEditingId) {
+                const addCurrent = confirm(`Formda henüz listeye kaydetmediğiniz bir saha var ("${currentLocation}").\n\nBu sahayı da hafızaya kaydedip öyle mi Excel indirmek istersiniz?`);
+                if (addCurrent) {
+                    // Formu otomatik submit ettir
+                    document.getElementById('auditForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                }
             }
 
-            // Not Ekleme Alanı
-            html += `
-                <div>
-                    <input type="text" id="note_${item.id}" placeholder="Maddeye özel açıklama / not..." class="w-full p-2 bg-gray-50 border rounded-lg text-xs">
-                </div>
-            `;
+            if (savedSites.length === 0) {
+                showToast('Hafızada Excel\'e aktarılacak saha kaydı yok. Önce bir sahayı kaydediniz.', 'warning');
+                return;
+            }
 
-            card.innerHTML = html;
-            container.appendChild(card);
-        });
+            const wb = XLSX.utils.book_new();
 
-        // ─── Excel Çıktısı Üretme Fonksiyonu ────────────────────
-        function exportToExcel() {
-            const location = document.getElementById('locationName').value || 'Belirtilmedi';
-            const date = document.getElementById('auditDate').value || 'Belirtilmedi';
-            const generalNotes = document.getElementById('generalNotes').value || '-';
-
-            // Veri Dizisi Oluşturma
-            const excelData = [
-                ["SİSTEM SALONU KONTROL RAPORU"],
-                ["Lokasyon / Santral:", location],
-                ["Tarih:", date],
-                ["Genel Notlar:", generalNotes],
-                [""], // Boş Satır
-                ["No", "Kontrol Maddesi", "Durum", "Yön Sayısı", "Yön Detayları", "Özel Notlar"]
+            // ─────────────────────────────────────────────────────────
+            // SAYFA 1: Tüm Sahalar Özeti (Satır Satır Veritabanı Formatı)
+            // ─────────────────────────────────────────────────────────
+            const summaryRows = [
+                ["SİSTEM SALONU SAHA KONTROLLERİ - GÜN SONU TOPLU RAPORU"],
+                [
+                    "Rapor Tarihi:", 
+                    new Date().toLocaleDateString('tr-TR'), 
+                    "Toplam Kontrol Edilen Saha:", 
+                    `${savedSites.length} Adet`
+                ],
+                [""], // Boş satır
+                [
+                    "Sıra",
+                    "Kontrol Tarihi",
+                    "Lokasyon / Santral Adı",
+                    "Teknisyen",
+                    "1- Yön Sayısı",
+                    "1- Yön Detayları",
+                    "1- Kaç Yön Var",
+                    "2- Kaç Shelf Var",
+                    "3- Kaç Kabin Var",
+                    "4- Kabin Sağlam mı?",
+                    "5- Örnek Etiket Kontrol",
+                    "6- Yön Testi",
+                    "7- SDP Enerji Sigorta Kontrolü",
+                    "8- SDP Etiket Kontrolü",
+                    "9- A-B Sigorta Kontrolü",
+                    "10- Patchcord Düzeni",
+                    "11- Fan Çalışıyor mu?",
+                    "12- Etiketleme Kontrolü",
+                    "13- Shelf Topraklama",
+                    "14- Kabin Topraklama",
+                    "15- Kanalet Kontrolü",
+                    "Saha Genel Notları",
+                    "Maddelere Özel Notlar"
+                ]
             ];
 
-            checkItems.forEach(item => {
-                const status = document.getElementById(`status_${item.id}`).value;
-                const note = document.getElementById(`note_${item.id}`).value || '-';
-                
-                let dirCount = '-';
-                let dirDetails = '-';
+            savedSites.forEach((site, index) => {
+                const itemMap = {};
+                (site.items || []).forEach(it => { itemMap[it.id] = it; });
 
-                if(item.hasDirections) {
-                    dirCount = document.getElementById(`directionCount_${item.id}`)?.value || '-';
-                    dirDetails = document.getElementById(`directionDetails_${item.id}`)?.value || '-';
-                }
+                const itemNotes = (site.items || [])
+                    .filter(it => it.note && it.note.trim() !== '' && it.note !== '-')
+                    .map(it => `[M${it.id}: ${it.note.trim()}]`)
+                    .join('; ');
 
-                excelData.push([
-                    item.id,
-                    item.label.replace(/^\d+-\s*/, ''), // Başındaki rakamı temizle
-                    status,
-                    dirCount,
-                    dirDetails,
-                    note
+                summaryRows.push([
+                    index + 1,
+                    site.auditDate || '-',
+                    site.locationName || '-',
+                    site.technician || '-',
+                    itemMap[1]?.directionCount || '-',
+                    itemMap[1]?.directionDetails || '-',
+                    itemMap[1]?.status || '-',
+                    itemMap[2]?.status || '-',
+                    itemMap[3]?.status || '-',
+                    itemMap[4]?.status || '-',
+                    itemMap[5]?.status || '-',
+                    itemMap[6]?.status || '-',
+                    itemMap[7]?.status || '-',
+                    itemMap[8]?.status || '-',
+                    itemMap[9]?.status || '-',
+                    itemMap[10]?.status || '-',
+                    itemMap[11]?.status || '-',
+                    itemMap[12]?.status || '-',
+                    itemMap[13]?.status || '-',
+                    itemMap[14]?.status || '-',
+                    itemMap[15]?.status || '-',
+                    site.generalNotes || '-',
+                    itemNotes || '-'
                 ]);
             });
 
-            // SheetJS ile Workbook Yapılandırması
-            const ws = XLSX.utils.aoa_to_sheet(excelData);
-            
-            // Sütun genişliklerini ayarlama
-            ws['!cols'] = [
-                { wch: 5 },  // No
-                { wch: 35 }, // Kontrol Maddesi
-                { wch: 15 }, // Durum
-                { wch: 12 }, // Yön Sayısı
-                { wch: 40 }, // Yön Detayları
-                { wch: 30 }  // Özel Notlar
+            const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+            wsSummary['!cols'] = [
+                { wch: 6 },  // Sıra
+                { wch: 14 }, // Tarih
+                { wch: 26 }, // Lokasyon
+                { wch: 18 }, // Teknisyen
+                { wch: 13 }, // Yön Sayısı
+                { wch: 32 }, // Yön Detayları
+                { wch: 16 }, // 1
+                { wch: 16 }, // 2
+                { wch: 16 }, // 3
+                { wch: 18 }, // 4
+                { wch: 20 }, // 5
+                { wch: 16 }, // 6
+                { wch: 26 }, // 7
+                { wch: 20 }, // 8
+                { wch: 20 }, // 9
+                { wch: 18 }, // 10
+                { wch: 18 }, // 11
+                { wch: 20 }, // 12
+                { wch: 20 }, // 13
+                { wch: 20 }, // 14
+                { wch: 18 }, // 15
+                { wch: 35 }, // Genel Notlar
+                { wch: 40 }  // Madde Notları
             ];
+            XLSX.utils.book_append_sheet(wb, wsSummary, "Tüm Sahalar Özeti");
 
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Saha Kontrol Raporu");
+            // ─────────────────────────────────────────────────────────
+            // SAYFA 2: Detaylı Saha Raporları (Her Saha İçin Başlıklı Blok)
+            // ─────────────────────────────────────────────────────────
+            const detailRows = [];
 
-            // Dosya İndirme
-            const fileName = `Sistem_Salonu_Kontrol_${location.replace(/\s+/g, '_')}_${date}.xlsx`;
+            savedSites.forEach((site, index) => {
+                detailRows.push([`=== SAHA KONTROL RAPORU #${index + 1}: ${site.locationName.toUpperCase()} ===`]);
+                detailRows.push(["Lokasyon / Santral:", site.locationName]);
+                detailRows.push(["Kontrol Tarihi:", site.auditDate]);
+                if (site.technician) {
+                    detailRows.push(["Kontrol Eden Teknisyen:", site.technician]);
+                }
+                detailRows.push(["Genel Notlar:", site.generalNotes || '-']);
+                detailRows.push([""]);
+                detailRows.push(["No", "Kontrol Maddesi", "Durum", "Yön Sayısı", "Yön Detayları", "Özel Notlar"]);
+
+                checkItems.forEach(item => {
+                    const savedItem = (site.items || []).find(i => i.id === item.id) || {};
+                    detailRows.push([
+                        item.id,
+                        item.label.replace(/^\d+-\s*/, ''),
+                        savedItem.status || '-',
+                        savedItem.directionCount || '-',
+                        savedItem.directionDetails || '-',
+                        savedItem.note || '-'
+                    ]);
+                });
+
+                detailRows.push([""]);
+                detailRows.push(["------------------------------------------------------------------------------------------------"]);
+                detailRows.push([""]);
+            });
+
+            const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+            wsDetail['!cols'] = [
+                { wch: 6 },  // No
+                { wch: 38 }, // Madde
+                { wch: 16 }, // Durum
+                { wch: 12 }, // Yön Sayısı
+                { wch: 35 }, // Yön Detayı
+                { wch: 35 }  // Not
+            ];
+            XLSX.utils.book_append_sheet(wb, wsDetail, "Detaylı Saha Raporları");
+
+            // Dosya Adı Belirleme
+            const todayStr = new Date().toISOString().split('T')[0];
+            const fileName = savedSites.length === 1
+                ? `Sistem_Salonu_Kontrol_${savedSites[0].locationName.replace(/\s+/g, '_')}_${todayStr}.xlsx`
+                : `Sistem_Salonu_Kontrolleri_Gun_Sonu_${todayStr}_(${savedSites.length}_Saha).xlsx`;
+
             XLSX.writeFile(wb, fileName);
+            showToast(`📊 ${savedSites.length} saha için Excel raporu başarıyla indirildi!`, 'success');
+        }
+
+        // ─── ÖNCEKİ EXCEL DOSYASINI İÇE AKTARMA / BİRLEŞTİRME ─────
+        function triggerExcelImport() {
+            const input = document.getElementById('excelFileInput');
+            if (input) {
+                input.value = ''; // Reset input
+                input.click();
+            }
+        }
+
+        function handleExcelFileSelected(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+
+                    let importedCount = 0;
+
+                    // 1. Durum: Yeni format ("Tüm Sahalar Özeti" sayfası var)
+                    if (wb.SheetNames.includes("Tüm Sahalar Özeti")) {
+                        const ws = wb.Sheets["Tüm Sahalar Özeti"];
+                        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+                        // Başlık satırını bul
+                        let headerIdx = -1;
+                        for (let i = 0; i < rows.length; i++) {
+                            if (rows[i] && (rows[i][0] === "Sıra" || rows[i][1] === "Kontrol Tarihi")) {
+                                headerIdx = i;
+                                break;
+                            }
+                        }
+
+                        if (headerIdx !== -1) {
+                            for (let i = headerIdx + 1; i < rows.length; i++) {
+                                const row = rows[i];
+                                if (!row || !row[2]) continue; // Lokasyon adı boşsa atla
+
+                                const auditDate = String(row[1] || '').trim();
+                                const locationName = String(row[2] || '').trim();
+                                const technician = row[3] && row[3] !== '-' ? String(row[3]).trim() : '';
+
+                                if (!locationName) continue;
+
+                                // 15 maddeyi eşleştir
+                                const items = checkItems.map(item => {
+                                    const res = { id: item.id, label: item.label };
+                                    if (item.id === 1) {
+                                        res.directionCount = row[4] && row[4] !== '-' ? String(row[4]) : '';
+                                        res.directionDetails = row[5] && row[5] !== '-' ? String(row[5]) : '';
+                                        res.status = row[6] || 'Uygun';
+                                    } else {
+                                        const colIdx = 5 + item.id;
+                                        res.status = row[colIdx] || 'Uygun';
+                                    }
+                                    res.note = '';
+                                    return res;
+                                });
+
+                                const generalNotes = row[21] && row[21] !== '-' ? String(row[21]) : '';
+
+                                savedSites.push({
+                                    id: 'site_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                                    locationName,
+                                    auditDate,
+                                    technician,
+                                    generalNotes,
+                                    createdAt: Date.now(),
+                                    items
+                                });
+                                importedCount++;
+                            }
+                        }
+                    }
+                    // 2. Durum: Eski tekli format ("Saha Kontrol Raporu" sayfası var)
+                    else if (wb.SheetNames.includes("Saha Kontrol Raporu")) {
+                        const ws = wb.Sheets["Saha Kontrol Raporu"];
+                        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+                        const locationName = rows[1]?.[1] ? String(rows[1][1]).trim() : '';
+                        const auditDate = rows[2]?.[1] ? String(rows[2][1]).trim() : '';
+                        const generalNotes = rows[3]?.[1] && rows[3][1] !== '-' ? String(rows[3][1]).trim() : '';
+
+                        if (locationName) {
+                            const items = [];
+                            for (let i = 5; i < rows.length; i++) {
+                                const r = rows[i];
+                                if (r && r[0]) {
+                                    const itemId = parseInt(r[0]);
+                                    const checkDef = checkItems.find(c => c.id === itemId);
+                                    if (checkDef) {
+                                        items.push({
+                                            id: itemId,
+                                            label: checkDef.label,
+                                            status: r[2] || 'Uygun',
+                                            directionCount: r[3] !== '-' ? String(r[3] || '') : '',
+                                            directionDetails: r[4] !== '-' ? String(r[4] || '') : '',
+                                            note: r[5] !== '-' ? String(r[5] || '') : ''
+                                        });
+                                    }
+                                }
+                            }
+
+                            savedSites.push({
+                                id: 'site_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                                locationName,
+                                auditDate,
+                                technician: '',
+                                generalNotes,
+                                createdAt: Date.now(),
+                                items
+                            });
+                            importedCount = 1;
+                        }
+                    }
+
+                    if (importedCount > 0) {
+                        saveToStorage();
+                        renderSavedSites();
+                        showToast(`✅ Excel dosyasından ${importedCount} adet saha kontrolü hafızaya eklendi!`, 'success');
+                    } else {
+                        showToast('⚠️ Seçilen Excel dosyasında uygun formatta saha kontrol kaydı bulunamadı.', 'warning');
+                    }
+                } catch (err) {
+                    console.error('Excel okuma hatası:', err);
+                    showToast('❌ Excel dosyası okunurken hata oluştu: ' + err.message, 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // ─── TOAST BİLDİRİM FONKSİYONU ───────────────────────────
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+
+            const toast = document.createElement('div');
+            toast.className = 'toast-item pointer-events-auto p-3.5 rounded-xl shadow-lg border text-sm flex items-center justify-between gap-2.5 transition';
+
+            if (type === 'success') {
+                toast.classList.add('bg-emerald-600', 'text-white', 'border-emerald-700');
+            } else if (type === 'warning') {
+                toast.classList.add('bg-amber-500', 'text-white', 'border-amber-600');
+            } else if (type === 'error') {
+                toast.classList.add('bg-rose-600', 'text-white', 'border-rose-700');
+            } else {
+                toast.classList.add('bg-gray-800', 'text-white', 'border-gray-900');
+            }
+
+            toast.innerHTML = `
+                <span>${message}</span>
+                <button type="button" class="text-white/80 hover:text-white font-bold text-sm ml-2" onclick="this.parentElement.remove()">✕</button>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('hide');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
         }
     </script>
 </body>
