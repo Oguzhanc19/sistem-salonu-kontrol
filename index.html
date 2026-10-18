@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#1e40af">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Sistem Salonu Saha Kontrolü — Tüm kontrol maddelerini tamamlayıp Excel çıktısı alın">
+
+    <title>Sistem Salonu Kontrol Formu</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-512.png">
+    <link rel="icon" type="image/png" href="icon-512.png">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS CDN (Excel Çıktısı İçin) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+        body { background-color: #f3f4f6; }
+
+        /* PWA Install Banner */
+        .install-banner {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1e40af, #3b82f6);
+            color: white;
+            padding: 14px 16px;
+            align-items: center;
+            gap: 12px;
+            z-index: 1000;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            animation: slideUp 0.4s ease-out;
+        }
+        .install-banner.show { display: flex; }
+        .install-text { flex: 1; }
+        .install-text strong { display: block; font-size: 0.95rem; }
+        .install-text span { font-size: 0.8rem; opacity: 0.85; }
+        .install-btn {
+            background: white;
+            color: #1e40af;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .install-btn:hover { background: #e0e7ff; }
+        .install-dismiss {
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 1.2rem;
+            cursor: pointer;
+            opacity: 0.7;
+            padding: 4px 8px;
+        }
+        .install-dismiss:hover { opacity: 1; }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        /* iOS Install Prompt */
+        .ios-prompt {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 16px;
+            right: 16px;
+            background: white;
+            color: #1e293b;
+            padding: 18px;
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            z-index: 1000;
+            animation: slideUp 0.4s ease-out;
+        }
+        .ios-prompt.show { display: block; }
+        .ios-prompt p { font-size: 0.9rem; line-height: 1.5; margin-bottom: 12px; }
+        .ios-prompt .close-ios {
+            background: #1e40af;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 max-w-3xl mx-auto pb-24">
+
+    <!-- PWA Install Banner (Android / Desktop) -->
+    <div class="install-banner" id="installBanner">
+        <span style="font-size: 1.3rem;">📲</span>
+        <div class="install-text">
+            <strong>Ana Ekrana Ekle</strong>
+            <span>Uygulama olarak kullanın</span>
+        </div>
+        <button class="install-btn" id="installBtn">Ekle</button>
+        <button class="install-dismiss" id="installDismiss">✕</button>
+    </div>
+
+    <!-- iOS Install Prompt -->
+    <div class="ios-prompt" id="iosPrompt">
+        <p>
+            📲 <strong>Ana Ekrana Ekleyin:</strong><br>
+            Safari'de alttaki <strong>paylaş</strong> düğmesine (⎙) dokunun, ardından <strong>"Ana Ekrana Ekle"</strong> seçeneğini seçin.
+        </p>
+        <button class="close-ios" id="closeIos">Tamam, Anladım</button>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-gray-100">
+        <h1 class="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+            📋 Sistem Salonu Saha Kontrolü
+        </h1>
+        <p class="text-sm text-gray-500 mb-6">Tüm kontrol maddelerini tamamlayıp Excel çıktısı alabilirsiniz.</p>
+
+        <form id="auditForm" class="space-y-6">
+            <!-- Genel Bilgiler -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Lokasyon / Santral Adı</label>
+                    <input type="text" id="locationName" placeholder="Örn: Ulukent" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Kontrol Tarihi</label>
+                    <input type="date" id="auditDate" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" required>
+                </div>
+            </div>
+
+            <!-- Kontrol Maddeleri -->
+            <div id="checkListContainer" class="space-y-4">
+                <!-- JS ile dinamik doldurulacak -->
+            </div>
+
+            <!-- Ekstra Genel Notlar -->
+            <div class="bg-gray-50 p-4 rounded-xl border">
+                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Ekstra Genel Notlar / Açıklama</label>
+                <textarea id="generalNotes" rows="3" placeholder="Sistem salonu genel durumu ile ilgili ilave notlar..." class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></textarea>
+            </div>
+
+            <!-- Butonlar -->
+            <div class="flex gap-3">
+                <button type="button" onclick="exportToExcel()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition duration-200 flex items-center justify-center gap-2">
+                    📊 Excel Olarak İndir
+                </button>
+                <button type="reset" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-3 px-4 rounded-xl transition duration-200">
+                    Temizle
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // ─── PWA Service Worker Kaydı ────────────────────────────
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('SW registered:', reg.scope))
+                .catch(err => console.error('SW registration failed:', err));
+        }
+
+        // ─── PWA Install Prompt (Android / Desktop) ─────────────
+        let deferredPrompt;
+        const installBanner = document.getElementById('installBanner');
+        const installBtn = document.getElementById('installBtn');
+        const installDismiss = document.getElementById('installDismiss');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBanner.classList.add('show');
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const result = await deferredPrompt.userChoice;
+                console.log('Install result:', result.outcome);
+                deferredPrompt = null;
+            }
+            installBanner.classList.remove('show');
+        });
+
+        installDismiss.addEventListener('click', () => {
+            installBanner.classList.remove('show');
+        });
+
+        // Hide banner if already installed as PWA
+        window.addEventListener('appinstalled', () => {
+            installBanner.classList.remove('show');
+            deferredPrompt = null;
+        });
+
+        // ─── iOS Install Prompt ──────────────────────────────────
+        const iosPrompt = document.getElementById('iosPrompt');
+        const closeIos = document.getElementById('closeIos');
+
+        function isIos() {
+            return /iphone|ipad|ipod/i.test(navigator.userAgent);
+        }
+        function isInStandaloneMode() {
+            return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+        }
+
+        if (isIos() && !isInStandaloneMode()) {
+            const dismissed = localStorage.getItem('iosPromptDismissed');
+            if (!dismissed) {
+                setTimeout(() => iosPrompt.classList.add('show'), 2000);
+            }
+        }
+
+        closeIos.addEventListener('click', () => {
+            iosPrompt.classList.remove('show');
+            localStorage.setItem('iosPromptDismissed', 'true');
+        });
+
+        // ─── Görseldeki 15 Madde ─────────────────────────────────
+        const checkItems = [
+            { id: 1, label: "1- Kaç Yön Var", hasDirections: true },
+            { id: 2, label: "2- Kaç Shelf Var" },
+            { id: 3, label: "3- Kaç Kabin Var" },
+            { id: 4, label: "4- Kabin Sağlam mı?" },
+            { id: 5, label: "5- Örnek Etiket Kontrol" },
+            { id: 6, label: "6- Yön Testi" },
+            { id: 7, label: "7- SDP'lerde Enerji Sigorta Kontrolü" },
+            { id: 8, label: "8- SDP Etiket Kontrolü" },
+            { id: 9, label: "9- A-B Sigorta Kontrolü" },
+            { id: 10, label: "10- Patchcord Düzeni" },
+            { id: 11, label: "11- Fan Çalışıyor mu?" },
+            { id: 12, label: "12- Etiketleme Kontrolü" },
+            { id: 13, label: "13- Shelf Topraklama Var mı?" },
+            { id: 14, label: "14- Kabin Topraklama Var mı?" },
+            { id: 15, label: "15- Kanalet Kontrolü" }
+        ];
+
+        // Bugünün tarihini varsayılan atama
+        document.getElementById('auditDate').valueAsDate = new Date();
+
+        // Form Arayüzünü Oluşturma
+        const container = document.getElementById('checkListContainer');
+        
+        checkItems.forEach(item => {
+            const card = document.createElement('div');
+            card.className = "p-4 bg-white border border-gray-200 rounded-xl shadow-sm space-y-3";
+            
+            let html = `
+                <div class="flex items-center justify-between">
+                    <span class="font-medium text-gray-800 text-sm">${item.label}</span>
+                    <select id="status_${item.id}" class="p-2 border rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500">
+                        <option value="Uygun">✅ Uygun / Var</option>
+                        <option value="Uygun Değil">❌ Uygun Değil / Yok</option>
+                        <option value="Uygulanamaz">➖ N/A</option>
+                    </select>
+                </div>
+            `;
+
+            // Eğer Baş Yön seçeneğiyse Yön Sayısı ve Detayı ekle
+            if(item.hasDirections) {
+                html += `
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+                        <div>
+                            <label class="text-xs text-gray-500">Yön Sayısı</label>
+                            <input type="number" id="directionCount_${item.id}" placeholder="Örn: 4" class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="text-xs text-gray-500">Yön Detayları (Merzifon, D.Saray vb.)</label>
+                            <input type="text" id="directionDetails_${item.id}" placeholder="Örn: Merzifon, D.Saray, Osmancık, Merkez" class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Not Ekleme Alanı
+            html += `
+                <div>
+                    <input type="text" id="note_${item.id}" placeholder="Maddeye özel açıklama / not..." class="w-full p-2 bg-gray-50 border rounded-lg text-xs">
+                </div>
+            `;
+
+            card.innerHTML = html;
+            container.appendChild(card);
+        });
+
+        // ─── Excel Çıktısı Üretme Fonksiyonu ────────────────────
+        function exportToExcel() {
+            const location = document.getElementById('locationName').value || 'Belirtilmedi';
+            const date = document.getElementById('auditDate').value || 'Belirtilmedi';
+            const generalNotes = document.getElementById('generalNotes').value || '-';
+
+            // Veri Dizisi Oluşturma
+            const excelData = [
+                ["SİSTEM SALONU KONTROL RAPORU"],
+                ["Lokasyon / Santral:", location],
+                ["Tarih:", date],
+                ["Genel Notlar:", generalNotes],
+                [""], // Boş Satır
+                ["No", "Kontrol Maddesi", "Durum", "Yön Sayısı", "Yön Detayları", "Özel Notlar"]
+            ];
+
+            checkItems.forEach(item => {
+                const status = document.getElementById(`status_${item.id}`).value;
+                const note = document.getElementById(`note_${item.id}`).value || '-';
+                
+                let dirCount = '-';
+                let dirDetails = '-';
+
+                if(item.hasDirections) {
+                    dirCount = document.getElementById(`directionCount_${item.id}`)?.value || '-';
+                    dirDetails = document.getElementById(`directionDetails_${item.id}`)?.value || '-';
+                }
+
+                excelData.push([
+                    item.id,
+                    item.label.replace(/^\d+-\s*/, ''), // Başındaki rakamı temizle
+                    status,
+                    dirCount,
+                    dirDetails,
+                    note
+                ]);
+            });
+
+            // SheetJS ile Workbook Yapılandırması
+            const ws = XLSX.utils.aoa_to_sheet(excelData);
+            
+            // Sütun genişliklerini ayarlama
+            ws['!cols'] = [
+                { wch: 5 },  // No
+                { wch: 35 }, // Kontrol Maddesi
+                { wch: 15 }, // Durum
+                { wch: 12 }, // Yön Sayısı
+                { wch: 40 }, // Yön Detayları
+                { wch: 30 }  // Özel Notlar
+            ];
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Saha Kontrol Raporu");
+
+            // Dosya İndirme
+            const fileName = `Sistem_Salonu_Kontrol_${location.replace(/\s+/g, '_')}_${date}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+        }
+    </script>
+</body>
+</html>
