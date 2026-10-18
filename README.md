@@ -1,0 +1,37 @@
+# 📋 Sistem Salonu Saha Kontrolü
+
+Telekomünikasyon sistem salonları için saha kontrol formu uygulaması. Tüm kontrol maddelerini tamamlayıp Excel çıktısı alabilirsiniz.
+
+## 🌐 Canlı Demo
+
+👉 [https://oguzhanc19.github.io/sistem-salonu-kontrol/](https://oguzhanc19.github.io/sistem-salonu-kontrol/)
+
+## ✨ Özellikler
+
+- 📋 15 maddelik detaylı kontrol listesi
+- 📊 Tek tıkla Excel (.xlsx) rapor çıktısı
+- 📲 Mobil uygulama olarak indirilebilir (PWA)
+- 📱 Mobil uyumlu responsive tasarım
+- 🔌 Çevrimdışı çalışma desteği
+
+## 📲 Mobil Uygulama Olarak Kurulum
+
+### Android (Chrome)
+1. Siteyi Chrome'da açın
+2. "Ana Ekrana Ekle" banner'ına tıklayın veya
+3. Menü (⋮) → "Ana ekrana ekle" seçin
+
+### iOS (Safari)
+1. Siteyi Safari'de açın
+2. Alt kısımdaki paylaş düğmesine (⎙) dokunun
+3. "Ana Ekrana Ekle" seçeneğini seçin
+
+## 🛠️ Teknolojiler
+
+- HTML5 + Tailwind CSS
+- SheetJS (Excel çıktısı)
+- PWA (Service Worker + Web App Manifest)
+
+## 📄 Lisans
+
+MIT
