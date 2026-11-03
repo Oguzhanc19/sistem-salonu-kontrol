@@ -195,7 +195,7 @@
             </button>
         </div>
 
-        <form id="auditForm" class="space-y-6">
+        <form id="auditForm" onsubmit="event.preventDefault(); handleSaveSite();" class="space-y-6">
             <!-- Genel Bilgiler -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <div>
@@ -218,7 +218,7 @@
                 </div>
             </div>
 
-            <!-- Kontrol Maddeleri -->
+            <!-- Kontrol Maddeleri (14 Madde) -->
             <div>
                 <div class="flex items-center justify-between mb-2">
                     <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Kontrol Maddeleri (14 Madde)</h3>
@@ -384,14 +384,13 @@
         //   hasCount: true       → Sayısal cevap alanı eklenir (Madde 2: Shelf, Madde 3: Kabin)
         //   (varsayılan)         → Sadece Uygun/Değil dropdown + not alanı
         //
-        // NOT: Eski 12. madde "Etiketleme Kontrolü" kaldırıldı (5. madde ile aynıydı).
-        //      Numaralar güncellendi: eski 13→12, eski 14→13, eski 15→14
+        // NOT: Eski 12. madde "Etiketleme Kontrolü" kaldırıldı (5. madde "Örnek Etiket Kontrol" ile aynıydı).
         const checkItems = [
             { id: 1,  label: "1- Kaç Yön Var",                          hasDirections: true },
             { id: 2,  label: "2- Kaç Shelf Var",                        hasCount: true, countLabel: "Shelf Sayısı", countPlaceholder: "Örn: 3" },
             { id: 3,  label: "3- Kaç Kabin Var",                        hasCount: true, countLabel: "Kabin Sayısı", countPlaceholder: "Örn: 5" },
             { id: 4,  label: "4- Kabin Sağlam mı?" },
-            { id: 5,  label: "5- Etiket Kontrol" },
+            { id: 5,  label: "5- Örnek Etiket Kontrol" },
             { id: 6,  label: "6- Yön Testi" },
             { id: 7,  label: "7- SDP'lerde Enerji Sigorta Kontrolü" },
             { id: 8,  label: "8- SDP Etiket Kontrolü" },
@@ -408,7 +407,7 @@
         let savedSites = [];
         let currentEditingId = null; // null ise yeni kayıt, id varsa düzenleme
         let currentFilter = 'all';   // 'all', 'today', 'older'
-        let isSaving = false;        // Çift kaydetmeyi önlemek için kilit
+        let isSaving = false;        // Çift kaydetmeyi önlemek için kilit (mutex)
 
         // Sayfa yüklendiğinde başlat
         document.addEventListener('DOMContentLoaded', () => {
@@ -504,19 +503,17 @@
                     const v2Data = localStorage.getItem('sistem_salonu_kayitlar_v2');
                     if (v2Data) {
                         savedSites = JSON.parse(v2Data) || [];
-                        // Eski kayıtlardaki maddeleri yeni sisteme uyumlu hale getir
-                        migrateSavedSites();
-                        saveToStorage();
                     } else {
                         // Eski v1 verisi varsa aktar
                         const oldData = localStorage.getItem('sistem_salonu_kayitlar');
                         if (oldData) {
                             savedSites = JSON.parse(oldData) || [];
-                            migrateSavedSites();
-                            saveToStorage();
                         }
                     }
                 }
+                // Her halükarda verileri 14 maddelik yapıya ve normalize formatlara migrate et
+                migrateSavedSites();
+                saveToStorage();
             } catch (err) {
                 console.error('Veriler yüklenirken hata oluştu:', err);
                 savedSites = [];
@@ -525,34 +522,59 @@
         }
 
         // Eski kayıtlardaki id=12 (Etiketleme Kontrolü) maddesini kaldırıp
-        // eski 13,14,15'i 12,13,14 olarak yeniden numaralandır
+        // eski 13,14,15'i 12,13,14 olarak yeniden numaralandır ve normalize et
         function migrateSavedSites() {
+            if (!Array.isArray(savedSites)) return;
             savedSites.forEach(site => {
-                if (!site.items) return;
-                // Eski 12. madde (Etiketleme Kontrolü) varsa kaldır
+                if (!site.items || !Array.isArray(site.items)) return;
+
+                // 1. Eski mükerrer 12. madde "Etiketleme Kontrolü" varsa kaldır
                 site.items = site.items.filter(it => {
-                    // Eski 12. maddeyi label'ından tanı
-                    if (it.id === 12 && it.label && it.label.includes('Etiketleme Kontrolü')) {
+                    if (it.id === 12 && it.label && (it.label.includes('Etiketleme Kontrolü') || it.label.includes('Etiketleme'))) {
                         return false;
                     }
                     return true;
                 });
-                // Eski 13→12, 14→13, 15→14 yeniden numaralandır
+
+                // 2. ID ve etiketleri normalize et
                 const idMap = { 13: 12, 14: 13, 15: 14 };
                 const labelMap = {
+                    1: "1- Kaç Yön Var",
+                    2: "2- Kaç Shelf Var",
+                    3: "3- Kaç Kabin Var",
+                    4: "4- Kabin Sağlam mı?",
+                    5: "5- Örnek Etiket Kontrol",
+                    6: "6- Yön Testi",
+                    7: "7- SDP'lerde Enerji Sigorta Kontrolü",
+                    8: "8- SDP Etiket Kontrolü",
+                    9: "9- A-B Sigorta Kontrolü",
+                    10: "10- Patchcord Düzeni",
+                    11: "11- Fan Çalışıyor mu?",
                     12: "12- Shelf Topraklama Var mı?",
                     13: "13- Kabin Topraklama Var mı?",
                     14: "14- Kanalet Kontrolü"
                 };
+
                 site.items = site.items.map(it => {
-                    if (idMap[it.id] !== undefined) {
-                        return { ...it, id: idMap[it.id], label: labelMap[idMap[it.id]] };
+                    let updated = { ...it };
+                    if (idMap[updated.id] !== undefined) {
+                        updated.id = idMap[updated.id];
                     }
-                    // 5. madde label düzeltme
-                    if (it.id === 5) {
-                        return { ...it, label: "5- Etiket Kontrol" };
+                    if (labelMap[updated.id]) {
+                        updated.label = labelMap[updated.id];
                     }
-                    return it;
+                    if (updated.id === 1) {
+                        updated.hasDirections = true;
+                    }
+                    if (updated.id === 2) {
+                        updated.hasCount = true;
+                        updated.countLabel = "Shelf Sayısı";
+                    }
+                    if (updated.id === 3) {
+                        updated.hasCount = true;
+                        updated.countLabel = "Kabin Sayısı";
+                    }
+                    return updated;
                 });
             });
         }
@@ -569,14 +591,14 @@
         // ─── FORM İŞLEMLERİ & SAHA KAYDETME ───────────────────────
         // Çift kaydetme korumalı tek giriş noktası
         function handleSaveSite() {
-            if (isSaving) return; // Çift tıklama koruması
+            if (isSaving) return; // Çift tıklama / çift event koruması
             isSaving = true;
 
             try {
                 doSaveSite();
             } finally {
-                // 500ms sonra kilidi aç (hızlı çift tıklamayı engelle)
-                setTimeout(() => { isSaving = false; }, 500);
+                // 600ms sonra kilidi aç
+                setTimeout(() => { isSaving = false; }, 600);
             }
         }
 
@@ -720,14 +742,14 @@
                 if (statusEl && si.status) statusEl.value = si.status;
                 if (noteEl) noteEl.value = si.note || '';
 
-                if (si.hasDirections || si.directionCount || si.directionDetails) {
+                if (si.id === 1 || si.hasDirections || si.directionCount || si.directionDetails) {
                     const countEl = document.getElementById(`directionCount_${si.id}`);
                     const detEl = document.getElementById(`directionDetails_${si.id}`);
                     if (countEl) countEl.value = si.directionCount || '';
                     if (detEl) detEl.value = si.directionDetails || '';
                 }
 
-                if (si.hasCount || si.countValue) {
+                if (si.id === 2 || si.id === 3 || si.hasCount || si.countValue) {
                     const cEl = document.getElementById(`countValue_${si.id}`);
                     if (cEl) cEl.value = si.countValue || '';
                 }
@@ -840,22 +862,23 @@
             let extra = '';
 
             // Yön bilgisi (Madde 1)
-            if (it.hasDirections && (it.directionCount || it.directionDetails)) {
-                extra += `<div class="text-[11px] text-blue-600 mt-0.5">📍 Yön Sayısı: <strong>${it.directionCount || '-'}</strong>`;
+            if ((it.hasDirections || it.id === 1) && (it.directionCount || it.directionDetails)) {
+                extra += `<div class="text-[11px] text-blue-600 mt-0.5">📍 Yön Sayısı: <strong>${escapeHtml(it.directionCount || '-')}</strong>`;
                 if (it.directionDetails) {
-                    extra += ` — Detay: <strong>${it.directionDetails}</strong>`;
+                    extra += ` — Detay: <strong>${escapeHtml(it.directionDetails)}</strong>`;
                 }
                 extra += `</div>`;
             }
 
             // Sayısal cevap (Madde 2: Shelf, Madde 3: Kabin)
-            if (it.hasCount && it.countValue) {
-                extra += `<div class="text-[11px] text-indigo-600 mt-0.5">📦 ${it.countLabel || 'Adet'}: <strong>${it.countValue}</strong></div>`;
+            if ((it.hasCount || it.id === 2 || it.id === 3) && it.countValue) {
+                const label = it.countLabel || (it.id === 2 ? 'Shelf Sayısı' : 'Kabin Sayısı');
+                extra += `<div class="text-[11px] text-indigo-600 mt-0.5">📦 ${label}: <strong>${escapeHtml(it.countValue)}</strong></div>`;
             }
 
             // Not
             if (it.note) {
-                extra += `<div class="text-[11px] text-gray-500 italic mt-0.5">💬 Not: ${it.note}</div>`;
+                extra += `<div class="text-[11px] text-gray-500 italic mt-0.5">💬 Not: ${escapeHtml(it.note)}</div>`;
             }
 
             return extra;
@@ -923,7 +946,7 @@
             // Yeniden eskiye sıralı göster
             const sortedSites = [...displaySites].reverse();
 
-            sortedSites.forEach((site, index) => {
+            sortedSites.forEach((site) => {
                 // İstatistik hesapla
                 let uygunCount = 0;
                 let uygunDegilCount = 0;
@@ -935,6 +958,24 @@
                     else naCount++;
                 });
 
+                // Önemli maddelerin doğrudan kart üzerinde hızlıca görünmesi için rozetler
+                const item1 = (site.items || []).find(it => it.id === 1);
+                const item2 = (site.items || []).find(it => it.id === 2);
+                const item3 = (site.items || []).find(it => it.id === 3);
+
+                let keyBadgesHtml = '';
+                if (item1 && (item1.directionCount || item1.directionDetails)) {
+                    let dirText = `🧭 Yön: ${item1.directionCount || '-'}`;
+                    if (item1.directionDetails) dirText += ` (${escapeHtml(item1.directionDetails)})`;
+                    keyBadgesHtml += `<span class="bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded border border-blue-200">${dirText}</span>`;
+                }
+                if (item2 && item2.countValue) {
+                    keyBadgesHtml += `<span class="bg-purple-50 text-purple-700 font-semibold px-2 py-0.5 rounded border border-purple-200">🗄️ Shelf: ${escapeHtml(item2.countValue)}</span>`;
+                }
+                if (item3 && item3.countValue) {
+                    keyBadgesHtml += `<span class="bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded border border-indigo-200">🏢 Kabin: ${escapeHtml(item3.countValue)}</span>`;
+                }
+
                 const card = document.createElement('div');
                 card.className = "p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl transition duration-150 shadow-sm";
 
@@ -944,14 +985,15 @@
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div class="flex-1">
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="font-bold text-gray-800 text-base">${site.locationName}</span>
+                                <span class="font-bold text-gray-800 text-base">${escapeHtml(site.locationName)}</span>
                                 <span class="text-xs px-2 py-0.5 rounded-full font-medium ${isToday ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'}">
                                     📅 ${site.auditDate || 'Tarih Belirtilmedi'}
                                 </span>
-                                ${site.technician ? `<span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">👤 ${site.technician}</span>` : ''}
+                                ${site.technician ? `<span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">👤 ${escapeHtml(site.technician)}</span>` : ''}
                             </div>
-                            <!-- Durum Rozetleri -->
+                            <!-- Durum Rozetleri ve Önemli Veriler -->
                             <div class="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                                ${keyBadgesHtml}
                                 <span class="bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded border border-emerald-200">
                                     ✅ ${uygunCount} Uygun
                                 </span>
@@ -991,20 +1033,23 @@
                     <div id="details_${site.id}" class="hidden mt-3 pt-3 border-t border-gray-200">
                         <div class="text-xs font-bold text-gray-600 uppercase mb-2">Kontrol Maddeleri Detayı:</div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
-                            ${(site.items || []).map(it => `
-                                <div class="p-2 bg-white rounded border flex items-start justify-between gap-2">
-                                    <div class="flex-1 min-w-0">
-                                        <div class="font-medium text-gray-800">${escapeHtml(it.label)}</div>
-                                        ${buildItemDetailHTML(it)}
+                            ${checkItems.map(item => {
+                                const it = (site.items || []).find(i => i.id === item.id) || { id: item.id, label: item.label, status: 'Uygun' };
+                                return `
+                                    <div class="p-2 bg-white rounded border flex items-start justify-between gap-2">
+                                        <div class="flex-1 min-w-0">
+                                            <div class="font-medium text-gray-800">${escapeHtml(item.label)}</div>
+                                            ${buildItemDetailHTML(it)}
+                                        </div>
+                                        <span class="text-[11px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                                            it.status === 'Uygun' ? 'bg-emerald-100 text-emerald-800' :
+                                            it.status === 'Uygun Değil' ? 'bg-rose-100 text-rose-800' : 'bg-gray-100 text-gray-700'
+                                        }">
+                                            ${it.status}
+                                        </span>
                                     </div>
-                                    <span class="text-[11px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
-                                        it.status === 'Uygun' ? 'bg-emerald-100 text-emerald-800' :
-                                        it.status === 'Uygun Değil' ? 'bg-rose-100 text-rose-800' : 'bg-gray-100 text-gray-700'
-                                    }">
-                                        ${it.status}
-                                    </span>
-                                </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;
@@ -1013,10 +1058,10 @@
             });
         }
 
-        // XSS koruması için basit HTML escape
+        // XSS koruması için HTML escape
         function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
         function toggleDetails(siteId) {
@@ -1069,7 +1114,7 @@
                     "3- Kabin Sayısı",
                     "3- Kaç Kabin Var (Durum)",
                     "4- Kabin Sağlam mı?",
-                    "5- Etiket Kontrol",
+                    "5- Örnek Etiket Kontrol",
                     "6- Yön Testi",
                     "7- SDP Enerji Sigorta Kontrolü",
                     "8- SDP Etiket Kontrolü",
@@ -1090,7 +1135,11 @@
 
                 const itemNotes = (site.items || [])
                     .filter(it => it.note && it.note.trim() !== '' && it.note !== '-')
-                    .map(it => `[M${it.id}: ${it.note.trim()}]`)
+                    .map(it => {
+                        const def = checkItems.find(c => c.id === it.id);
+                        const labelName = def ? def.label.replace(/^\d+-\s*/, '') : `Madde ${it.id}`;
+                        return `[${labelName}: ${it.note.trim()}]`;
+                    })
                     .join('; ');
 
                 summaryRows.push([
@@ -1127,7 +1176,7 @@
                 { wch: 14 }, // Tarih
                 { wch: 26 }, // Lokasyon
                 { wch: 18 }, // Teknisyen
-                { wch: 13 }, // 1-Yön Sayısı
+                { wch: 14 }, // 1-Yön Sayısı
                 { wch: 32 }, // 1-Yön Detayları
                 { wch: 20 }, // 1-Durum
                 { wch: 14 }, // 2-Shelf Sayısı
@@ -1135,7 +1184,7 @@
                 { wch: 14 }, // 3-Kabin Sayısı
                 { wch: 20 }, // 3-Durum
                 { wch: 18 }, // 4
-                { wch: 18 }, // 5
+                { wch: 22 }, // 5
                 { wch: 16 }, // 6
                 { wch: 28 }, // 7
                 { wch: 20 }, // 8
@@ -1146,7 +1195,7 @@
                 { wch: 20 }, // 13
                 { wch: 18 }, // 14
                 { wch: 35 }, // Genel Notlar
-                { wch: 40 }  // Madde Notları
+                { wch: 45 }  // Madde Notları
             ];
             XLSX.utils.book_append_sheet(wb, wsSummary, "Tüm Sahalar Özeti");
 
@@ -1164,25 +1213,27 @@
                 }
                 detailRows.push(["Genel Notlar:", site.generalNotes || '-']);
                 detailRows.push([""]);
-                detailRows.push(["No", "Kontrol Maddesi", "Durum", "Sayısal Değer", "Yön/Detay Bilgisi", "Özel Notlar"]);
+                detailRows.push(["No", "Kontrol Maddesi", "Durum", "Sayısal Değer / Adet", "Yön Detayları", "Özel Notlar"]);
 
-                (site.items || []).forEach(savedItem => {
+                checkItems.forEach(item => {
+                    const savedItem = (site.items || []).find(i => i.id === item.id) || {};
                     let numericVal = '-';
                     let extraInfo = '-';
 
                     // Yön bilgisi (Madde 1)
-                    if (savedItem.hasDirections || savedItem.directionCount || savedItem.directionDetails) {
-                        numericVal = savedItem.directionCount || '-';
+                    if (item.id === 1 || savedItem.hasDirections || savedItem.directionCount || savedItem.directionDetails) {
+                        numericVal = savedItem.directionCount ? `${savedItem.directionCount} Yön` : '-';
                         extraInfo = savedItem.directionDetails || '-';
                     }
-                    // Sayısal cevap (Shelf/Kabin)
-                    else if (savedItem.hasCount || savedItem.countValue) {
-                        numericVal = savedItem.countValue || '-';
+                    // Sayısal cevap (Shelf: Madde 2, Kabin: Madde 3)
+                    else if (item.id === 2 || item.id === 3 || savedItem.hasCount || savedItem.countValue) {
+                        const unit = item.id === 2 ? 'Shelf' : 'Kabin';
+                        numericVal = savedItem.countValue ? `${savedItem.countValue} ${unit}` : '-';
                     }
 
                     detailRows.push([
-                        savedItem.id,
-                        savedItem.label.replace(/^\d+-\s*/, ''),
+                        item.id,
+                        item.label.replace(/^\d+-\s*/, ''),
                         savedItem.status || '-',
                         numericVal,
                         extraInfo,
@@ -1200,8 +1251,8 @@
                 { wch: 6 },  // No
                 { wch: 38 }, // Madde
                 { wch: 16 }, // Durum
-                { wch: 16 }, // Sayısal Değer
-                { wch: 35 }, // Yön/Detay Bilgisi
+                { wch: 20 }, // Sayısal Değer / Adet
+                { wch: 35 }, // Yön Detayları
                 { wch: 35 }  // Not
             ];
             XLSX.utils.book_append_sheet(wb, wsDetail, "Detaylı Saha Raporları");
@@ -1252,7 +1303,6 @@
                         }
 
                         if (headerIdx !== -1) {
-                            // Başlık satırından sütun sayısını al
                             const headerRow = rows[headerIdx];
                             const colCount = headerRow.length;
 
@@ -1266,12 +1316,11 @@
 
                                 if (!locationName) continue;
 
-                                // v3 formatını algıla (24 sütun: Shelf ve Kabin sayıları ayrı sütun)
                                 const isV3 = colCount >= 24;
-
                                 const items = [];
+
                                 if (isV3) {
-                                    // v3 format: 24 sütunlu
+                                    // 24 sütunlu güncel format
                                     items.push({
                                         id: 1, label: "1- Kaç Yön Var", hasDirections: true,
                                         directionCount: valOrEmpty(row[4]),
@@ -1302,7 +1351,7 @@
                                         });
                                     }
                                 } else {
-                                    // v2 eski format: 23 sütunlu
+                                    // Eski 23 sütunlu format
                                     checkItems.forEach(item => {
                                         const res = { id: item.id, label: item.label, hasDirections: !!item.hasDirections, hasCount: !!item.hasCount, countLabel: item.countLabel || '' };
                                         if (item.id === 1) {
@@ -1382,6 +1431,7 @@
                     }
 
                     if (importedCount > 0) {
+                        migrateSavedSites();
                         saveToStorage();
                         renderSavedSites();
                         showToast(`✅ Excel dosyasından ${importedCount} adet saha kontrolü hafızaya eklendi!`, 'success');
