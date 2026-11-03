@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sistem-salonu-kontrol-v2';
+const CACHE_NAME = 'sistem-salonu-kontrol-v3';
 const ASSETS = [
   './',
   './index.html',
