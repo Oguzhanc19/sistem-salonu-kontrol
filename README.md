@@ -8,9 +8,10 @@ Telekomünikasyon sistem salonları için saha kontrol formu uygulaması. Tüm k
 
 ## ✨ Özellikler
 
-- 📋 15 maddelik detaylı kontrol listesi
+- 📋 14 maddelik detaylı kontrol listesi
 - 💾 **Çoklu Saha Kayıt Akışı**: Sahaları sırayla gezip tek tek hafızaya ("Bu Sahayı Kaydet") kaydetme
 - 📊 **Gün Sonu Toplu Excel Raporu**: Tüm sahaları (bugünkü ve önceki günlerdeki) tek Excel'de indirme (hem satır satır veritabanı özeti hem detaylı blok raporlar)
+- 🧭 **Yön, Shelf ve Kabin Özel Sayımları**: Yön sayısı/detayları, shelf sayısı ve kabin sayısı özel alanları ve bunların Excel'e ve özet kartlarına tam entegrasyonu
 - 📂 **Önceki Excel'i Yükle & Birleştir**: Önceki günlerden indirilen Excel dosyalarını sisteme geri yükleyip yeni sahalarla birleştirme
 - ✏️ **Kayıt Yönetimi**: Kaydedilen sahaları inceleme, düzenleme ve silme imkanı
 - 📲 Mobil uygulama olarak indirilebilir (PWA)

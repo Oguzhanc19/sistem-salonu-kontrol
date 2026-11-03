@@ -1,9 +1,10 @@
-const CACHE_NAME = 'sistem-salonu-kontrol-v2';
+const CACHE_NAME = 'sistem-salonu-kontrol-v4';
 const ASSETS = [
   './',
   './index.html',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './manifest.json'
 ];
 
 // Install — cache all core assets
